@@ -1,0 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;500;600;700;800&family=Heebo:wght@300;400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Assistant", "Heebo", ui-sans-serif, system-ui, sans-serif;
+  --font-heebo: "Heebo", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  
+  --color-bg: #F8F9FA;
+  --color-ink: #1D1D1F;
+  --color-accent: #FFD700;
+  --color-grid-line: #E5E7EB;
+  --color-cell-bg: #FFFFFF;
+  --color-cell-empty: #1D1D1F;
+  --color-highlight: #FFF9C4;
+  --color-active: #FFECB3;
+}
+
+@layer base {
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    direction: rtl;
+  }
+}
+
+/* Custom styles for the crossword grid */
+.crossword-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 64px);
+  grid-template-rows: repeat(5, 64px);
+  border: 2px solid var(--color-ink);
+  background-color: var(--color-ink);
+  gap: 2px;
+  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
+}
+
+.cell {
+  width: 64px;
+  height: 64px;
+  background-color: var(--color-cell-bg);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  cursor: text;
+  text-transform: uppercase;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.cell.black {
+  background-color: var(--color-cell-empty);
+  cursor: default;
+}
+
+.cell.active {
+  background-color: var(--color-active);
+}
+
+.cell.highlight {
+  background-color: var(--color-highlight);
+}
+
+.cell-num {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #4B5563;
+  pointer-events: none;
+}
+
+.clue-item {
+  font-size: 16px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+  border-right: 3px solid transparent;
+}
+
+.clue-item.active {
+  background-color: var(--color-highlight);
+  border-right-color: var(--color-accent);
+  font-weight: 600;
+}
