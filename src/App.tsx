@@ -11,11 +11,28 @@ import { CrosswordCell } from './components/CrosswordCell';
 import { ClueList } from './components/ClueList';
 import { VictoryModal } from './components/VictoryModal';
 import { AdminView } from './components/AdminView';
-import { getPuzzleByDate, puzzles as initialPuzzles } from './data/puzzles';
+import { puzzles as initialPuzzles } from './data/puzzles';
 import { Puzzle, CellPosition, Direction, Clue } from './types';
 
+const LOCAL_STORAGE_KEY = 'mini-puzzles';
+
 export default function App() {
-  const [puzzles, setPuzzles] = useState<Puzzle[]>(initialPuzzles);
+  const [puzzles, setPuzzles] = useState<Puzzle[]>(() => {
+    try {
+      const stored = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as Puzzle[];
+        const mergedMap = new Map<string, Puzzle>();
+        initialPuzzles.forEach((puzzle) => mergedMap.set(puzzle.date, puzzle));
+        parsed.forEach((puzzle) => mergedMap.set(puzzle.date, puzzle));
+        return Array.from(mergedMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+      }
+    } catch {
+      // ignore invalid stored data and fall back to built-in puzzles
+    }
+
+    return initialPuzzles.slice().sort((a, b) => b.date.localeCompare(a.date));
+  });
   const [isAdminView, setIsAdminView] = useState(false);
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
   const [userGrid, setUserGrid] = useState<string[][]>(Array(5).fill(null).map(() => Array(5).fill('')));
@@ -31,13 +48,15 @@ export default function App() {
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize puzzle based on current date
+  // Initialize puzzle based on current date with fallback to latest saved puzzle
   useEffect(() => {
     const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
-    const dailyPuzzle = puzzles.find(p => p.date === today);
-    
-    if (dailyPuzzle) {
-      setPuzzle(dailyPuzzle);
+    const dailyPuzzle = puzzles.find((p) => p.date === today);
+    const latestPuzzle = puzzles.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+    const targetPuzzle = dailyPuzzle || latestPuzzle;
+
+    if (targetPuzzle) {
+      setPuzzle(targetPuzzle);
       setUserGrid(Array(5).fill(null).map(() => Array(5).fill('')));
       setIsSolved(false);
       setSeconds(0);
@@ -45,18 +64,22 @@ export default function App() {
       setIsCheckMode(false);
       setTotalAttempts(0);
       setCorrectAttempts(0);
-      
-      // Find first non-black cell to focus
+      setIsTimerRunning(false);
+
       for (let r = 0; r < 5; r++) {
         for (let c = 0; c < 5; c++) {
-          if (dailyPuzzle.grid[r][c] !== null) {
+          if (targetPuzzle.grid[r][c] !== null) {
             setFocusedCell({ row: r, col: c });
             setIsTimerRunning(true);
             return;
           }
         }
       }
+      return;
     }
+
+    setPuzzle(null);
+    setIsTimerRunning(false);
   }, [puzzles]);
 
   // Timer logic
@@ -72,6 +95,14 @@ export default function App() {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isTimerRunning, isSolved, isAdminView]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(puzzles));
+    } catch {
+      // ignore localStorage write errors
+    }
+  }, [puzzles]);
 
   const formatTime = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -229,9 +260,9 @@ export default function App() {
   };
 
   const handleAdminSave = (newPuzzle: Puzzle) => {
-    setPuzzles(prev => {
-      const filtered = prev.filter(p => p.date !== newPuzzle.date);
-      return [...filtered, newPuzzle];
+    setPuzzles((prev) => {
+      const filtered = prev.filter((p) => p.date !== newPuzzle.date);
+      return [...filtered, newPuzzle].sort((a, b) => b.date.localeCompare(a.date));
     });
     setIsAdminView(false);
   };
@@ -263,6 +294,23 @@ export default function App() {
   }
 
   if (!puzzle) {
+    if (puzzles.length === 0) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+          <div className="text-center max-w-lg">
+            <h2 className="text-2xl font-bold text-gray-700 mb-4">אין תשחצים במערכת</h2>
+            <p className="text-base text-gray-500 mb-6">היכנס לעורך כדי ליצור את הראשון.</p>
+            <button
+              onClick={() => setIsAdminView(true)}
+              className="text-sm text-ink font-semibold underline"
+            >
+              לפתיחת העורך
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
