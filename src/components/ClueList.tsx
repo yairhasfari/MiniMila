@@ -18,7 +18,7 @@ export const ClueList: React.FC<ClueListProps> = ({
 }) => {
   const renderClueSection = (title: string, clues: Clue[], direction: Direction) => (
     <div className="flex-1 min-w-[200px]">
-      <h3 className="text-[13px] font-bold text-[#9CA3AF] uppercase tracking-[1px] mb-3">
+      <h3 className="text-[13px] font-bold text-gray-700 uppercase tracking-[1px] mb-3">
         {title}
       </h3>
       <ul className="flex flex-col gap-2">
@@ -27,14 +27,14 @@ export const ClueList: React.FC<ClueListProps> = ({
             key={`${direction}-${clue.number}`}
             onClick={() => onClueClick(clue, direction)}
             className={`
-              clue-item
+              clue-item bg-white
               ${activeClue?.number === clue.number && activeDirection === direction
                 ? 'active'
                 : 'hover:bg-gray-100'}
             `}
           >
-            <span className="font-extrabold ml-2 text-[#6B7280]">{clue.number}</span>
-            <span className="text-inherit">{clue.text}</span>
+            <span className="font-extrabold ml-2 text-gray-700">{clue.number}</span>
+            <span className="text-inherit text-gray-900">{clue.text}</span>
           </li>
         ))}
       </ul>

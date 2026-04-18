@@ -6,15 +6,51 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { motion } from 'motion/react';
-import { Timer, HelpCircle, Share2, RefreshCw, Lightbulb, CheckCircle2 } from 'lucide-react';
+import { Timer, HelpCircle, Share2, RefreshCw, Lightbulb, CheckCircle2, Eye, Info } from 'lucide-react';
 import { CrosswordCell } from './components/CrosswordCell';
 import { ClueList } from './components/ClueList';
 import { VictoryModal } from './components/VictoryModal';
 import { AdminView } from './components/AdminView';
+import { Footer } from './components/Footer';
 import { puzzles as initialPuzzles } from './data/puzzles';
 import { Puzzle, CellPosition, Direction, Clue } from './types';
 
 const LOCAL_STORAGE_KEY = 'mini-puzzles';
+
+const InstructionsModal = ({ showInstructions, setShowInstructions }: { showInstructions: boolean, setShowInstructions: (show: boolean) => void }) => (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+    onClick={() => setShowInstructions(false)}
+  >
+    <motion.div
+      initial={{ scale: 0.9, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      exit={{ scale: 0.9, opacity: 0 }}
+      className="bg-white p-6 rounded-lg max-w-md mx-4 text-black"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <h2 className="text-xl font-bold mb-4">איך לשחק</h2>
+      <ul className="space-y-2 text-sm">
+        <li>• מלא את הרשת עם המילים הנכונות</li>
+        <li>• לחץ על תא כדי להתחיל לכתוב</li>
+        <li>• השתמש בחצים כדי לנווט</li>
+        <li>• לחץ על רמז כדי לראות את הרמז הנוכחי</li>
+        <li>• לחץ על בדוק כדי לבדוק את התשובות</li>
+        <li>• לחץ על חשוף מילה כדי לחשוף את המילה הנוכחית</li>
+        <li>• שתף את התוצאה בסוף המשחק</li>
+      </ul>
+      <button
+        onClick={() => setShowInstructions(false)}
+        className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+      >
+        סגור
+      </button>
+    </motion.div>
+  </motion.div>
+);
 
 export default function App() {
   const [puzzles, setPuzzles] = useState<Puzzle[]>(() => {
@@ -33,7 +69,16 @@ export default function App() {
 
     return initialPuzzles.slice().sort((a, b) => b.date.localeCompare(a.date));
   });
-  const [isAdminView, setIsAdminView] = useState(false);
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(() => {
+    try {
+      return window.localStorage.getItem('admin-auth') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [rememberMe, setRememberMe] = useState(false);
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
   const [userGrid, setUserGrid] = useState<string[][]>(Array(5).fill(null).map(() => Array(5).fill('')));
   const [focusedCell, setFocusedCell] = useState<CellPosition>({ row: 0, col: 0 });
@@ -45,8 +90,16 @@ export default function App() {
   const [isCheckMode, setIsCheckMode] = useState(false);
   const [totalAttempts, setTotalAttempts] = useState(0);
   const [correctAttempts, setCorrectAttempts] = useState(0);
+  const [showInstructions, setShowInstructions] = useState(false);
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('mode') === 'admin') {
+      setIsAdminMode(true);
+    }
+  }, []);
 
   // Initialize puzzle based on current date with fallback to latest saved puzzle
   useEffect(() => {
@@ -84,7 +137,7 @@ export default function App() {
 
   // Timer logic
   useEffect(() => {
-    if (isTimerRunning && !isSolved && !isAdminView) {
+    if (isTimerRunning && !isSolved) {
       timerRef.current = setInterval(() => {
         setSeconds((s) => s + 1);
       }, 1000);
@@ -94,7 +147,7 @@ export default function App() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isTimerRunning, isSolved, isAdminView]);
+  }, [isTimerRunning, isSolved]);
 
   useEffect(() => {
     try {
@@ -250,13 +303,24 @@ export default function App() {
 
   const handleShare = () => {
     const accuracy = totalAttempts > 0 ? Math.round((correctAttempts / totalAttempts) * 100) : 100;
-    const text = `מיני תשבץ ${puzzle?.date.split('-').reverse().slice(0, 2).join('/')} - ${formatTime(seconds)} (דיוק: ${accuracy}%)\n${window.location.href}`;
-    if (navigator.share) {
-      navigator.share({ title: 'מיני תשבץ עברי', text });
-    } else {
-      navigator.clipboard.writeText(text);
-      alert('התוצאה הועתקה ללוח!');
+    const dateStr = puzzle?.date.split('-').reverse().slice(0, 2).join('/') || '';
+    let gridEmojis = '';
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 5; c++) {
+        if (puzzle?.grid[r][c] === null) {
+          gridEmojis += '⬛';
+        } else if (userGrid[r][c] === puzzle.grid[r][c]) {
+          gridEmojis += '🟩';
+        } else {
+          gridEmojis += '⬜';
+        }
+      }
+      gridEmojis += '\n';
     }
+    const text = `מיני-מילה ${dateStr}\n${formatTime(seconds)} | ${accuracy}%\n${gridEmojis}שחקו כאן: ${window.location.origin}`;
+    navigator.clipboard.writeText(text).then(() => {
+      alert('התוצאה הועתקה ללוח!');
+    });
   };
 
   const handleAdminSave = (newPuzzle: Puzzle) => {
@@ -264,11 +328,27 @@ export default function App() {
       const filtered = prev.filter((p) => p.date !== newPuzzle.date);
       return [...filtered, newPuzzle].sort((a, b) => b.date.localeCompare(a.date));
     });
-    setIsAdminView(false);
+    setIsAdminAuthenticated(false);
   };
 
   const handleDeletePuzzle = (date: string) => {
     setPuzzles(prev => prev.filter(p => p.date !== date));
+  };
+
+  const handleAdminAuth = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminPassword === 'MiniMila2026YairHasfari34!!!') {
+      setIsAdminAuthenticated(true);
+      if (rememberMe) {
+        try {
+          window.localStorage.setItem('admin-auth', 'true');
+        } catch {
+          // ignore
+        }
+      }
+    } else {
+      alert('סיסמה שגויה');
+    }
   };
 
   const revealLetter = () => {
@@ -282,13 +362,57 @@ export default function App() {
     }
   };
 
-  if (isAdminView) {
+  const revealWord = () => {
+    if (!puzzle || isSolved) return;
+    const clue = getActiveClue();
+    if (!clue) return;
+    const newGrid = userGrid.map((row) => [...row]);
+    for (let i = 0; i < clue.length; i++) {
+      const row = activeDirection === 'across' ? clue.row : clue.row + i;
+      const col = activeDirection === 'across' ? clue.col + i : clue.col;
+      newGrid[row][col] = puzzle.grid[row][col] || '';
+    }
+    setUserGrid(newGrid);
+    if (checkWin(newGrid, puzzle)) handleWin();
+  };
+
+  if (isAdminMode && !isAdminAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <form onSubmit={handleAdminAuth} className="bg-white p-6 rounded-lg shadow-md">
+          <h2 className="text-xl font-bold mb-4 text-black">הזן סיסמה</h2>
+          <input
+            type="password"
+            value={adminPassword}
+            onChange={(e) => setAdminPassword(e.target.value)}
+            className="border p-2 rounded w-full mb-4 bg-white text-black border-gray-300"
+            placeholder="סיסמה"
+          />
+          <div className="flex items-center mb-4">
+            <input
+              type="checkbox"
+              id="rememberMe"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="mr-2"
+            />
+            <label htmlFor="rememberMe" className="text-sm text-black">זכור אותי</label>
+          </div>
+          <button type="submit" className="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600">
+            כניסה
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  if (isAdminAuthenticated) {
     return (
       <AdminView 
         puzzles={puzzles}
         onSave={handleAdminSave} 
         onDelete={handleDeletePuzzle}
-        onClose={() => setIsAdminView(false)} 
+        onClose={() => setIsAdminAuthenticated(false)}
       />
     );
   }
@@ -301,7 +425,7 @@ export default function App() {
             <h2 className="text-2xl font-bold text-gray-700 mb-4">אין תשחצים במערכת</h2>
             <p className="text-base text-gray-500 mb-6">היכנס לעורך כדי ליצור את הראשון.</p>
             <button
-              onClick={() => setIsAdminView(true)}
+              onClick={() => window.location.href = '?mode=admin'}
               className="text-sm text-ink font-semibold underline"
             >
               לפתיחת העורך
@@ -317,7 +441,7 @@ export default function App() {
           <RefreshCw className="animate-spin mx-auto mb-4 text-primary" size={48} />
           <h2 className="text-xl font-bold text-gray-600">טוען תשבץ יומי...</h2>
           <button 
-            onClick={() => setIsAdminView(true)}
+            onClick={() => window.location.href = '?mode=admin'}
             className="mt-4 text-xs text-gray-400 hover:underline"
           >
             פתח עריכה
@@ -334,15 +458,21 @@ export default function App() {
     <div className="min-h-screen bg-bg flex flex-col items-center pb-12">
       {/* Header */}
       <header className="w-full max-w-[800px] px-4 py-6 flex justify-between items-baseline border-bottom border-grid-line mb-10">
-        <div 
-          className="text-2xl font-extrabold tracking-[-0.5px] text-ink cursor-pointer"
-          onDoubleClick={() => setIsAdminView(true)}
-        >
+        <div className="text-2xl font-extrabold tracking-[-0.5px] text-ink">
           תשבץ מיני <span className="text-accent">●</span>
         </div>
         
-        <div className="text-sm text-[#6B7280] font-medium hidden sm:block">
-          {new Intl.DateTimeFormat('he-IL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowInstructions(true)}
+            className="p-2 rounded hover:bg-gray-100"
+            title="הוראות"
+          >
+            <Info size={20} />
+          </button>
+          <div className="text-sm text-gray-600 font-medium hidden sm:block">
+            {new Intl.DateTimeFormat('he-IL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())}
+          </div>
         </div>
 
         <div className="flex items-center gap-6">
@@ -360,6 +490,13 @@ export default function App() {
               title="רמז (גלה אות)"
             >
               <Lightbulb size={20} />
+            </button>
+            <button 
+              onClick={revealWord}
+              className="p-2 text-gray-400 hover:text-ink hover:bg-gray-100 rounded-lg transition-all"
+              title="חשוף מילה"
+            >
+              <Eye size={20} />
             </button>
           </div>
           <div className="font-mono text-lg font-semibold tabular-nums text-ink">
@@ -383,7 +520,7 @@ export default function App() {
                 {activeClue?.number}
               </div>
               <div className="flex-1">
-                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">
+                <div className="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-0.5">
                   {activeDirection === 'across' ? 'מאוזן' : 'מאונך'}
                 </div>
                 <div className="text-sm font-medium leading-tight">
@@ -447,7 +584,7 @@ export default function App() {
 
       {/* Mobile Keyboard Helper (Optional, but good for UX) */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 p-4 bg-white/80 backdrop-blur-md border-t border-gray-200 flex justify-center gap-2">
-        <p className="text-xs text-gray-400 font-medium">השתמש במקלדת המכשיר כדי להקליד</p>
+        <p className="text-xs text-gray-500 font-medium">השתמש במקלדת המכשיר כדי להקליד</p>
       </div>
 
       <VictoryModal
@@ -458,6 +595,10 @@ export default function App() {
         onClose={() => setShowVictory(false)}
         onShare={handleShare}
       />
+
+      {showInstructions && <InstructionsModal showInstructions={showInstructions} setShowInstructions={setShowInstructions} />}
+
+      <Footer />
     </div>
   );
 }

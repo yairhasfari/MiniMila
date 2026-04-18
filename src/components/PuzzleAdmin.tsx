@@ -1,7 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Save, Trash2, Grid, List, Calendar, Edit3, Plus, LayoutDashboard, Download } from 'lucide-react';
+import { Save, Trash2, Grid, List, Calendar, Edit3, Plus, LayoutDashboard, Download, Zap } from 'lucide-react';
 import { Puzzle, Clue } from '../types';
+import { Footer } from './Footer';
+import { HEBREW_LEXICON } from '../utils/hebrewDictionary';
+import { autoFillGridBacktracking } from '../utils/crosswordBacktracking';
 
 interface PuzzleAdminProps {
   puzzles: Puzzle[];
@@ -18,13 +21,19 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
   const [grid, setGrid] = useState<(string | null)[][]>(
     Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => ''))
   );
+  const [userInput, setUserInput] = useState<boolean[][]>(
+    Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => false))
+  );
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [acrossClues, setAcrossClues] = useState<{ [key: string]: string }>({});
   const [downClues, setDownClues] = useState<{ [key: string]: string }>({});
+  const [selectedCell, setSelectedCell] = useState<{ row: number; col: number } | null>(null);
+  const [selectedDirection, setSelectedDirection] = useState<'across' | 'down'>('across');
 
   const resetCreator = () => {
     setEditingPuzzle(null);
     setGrid(Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => '')));
+    setUserInput(Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => false)));
     setDate(new Date().toISOString().split('T')[0]);
     setAcrossClues({});
     setDownClues({});
@@ -34,6 +43,7 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
   const editPuzzle = (puzzle: Puzzle) => {
     setEditingPuzzle(puzzle);
     setGrid(puzzle.grid.map((row) => [...row]));
+    setUserInput(puzzle.grid.map((row) => row.map((cell) => cell !== null && cell !== '')));
     setDate(puzzle.date);
 
     const ac: { [key: string]: string } = {};
@@ -52,12 +62,20 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
   };
 
   const handleCellClick = (row: number, col: number, event: React.MouseEvent<HTMLDivElement>) => {
-    if (!event.shiftKey && !event.altKey) return;
-    setGrid((prev) => {
-      const next = prev.map((row) => [...row]);
-      next[row][col] = next[row][col] === null ? '' : null;
-      return next;
-    });
+    if (event.shiftKey || event.altKey) {
+      setGrid((prev) => {
+        const next = prev.map((row) => [...row]);
+        next[row][col] = next[row][col] === null ? '' : null;
+        return next;
+      });
+      setUserInput((prev) => {
+        const next = prev.map((row) => [...row]);
+        next[row][col] = false;
+        return next;
+      });
+      return;
+    }
+    setSelectedCell({ row, col });
   };
 
   const handleLetterChange = (row: number, col: number, value: string) => {
@@ -65,6 +83,11 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
       const next = prev.map((row) => [...row]);
       if (next[row][col] === null) return next;
       next[row][col] = value.slice(-1);
+      return next;
+    });
+    setUserInput((prev) => {
+      const next = prev.map((row) => [...row]);
+      next[row][col] = value.slice(-1) !== '';
       return next;
     });
   };
@@ -184,8 +207,99 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
     }
   };
 
+  const getSelectedWordCells = () => {
+    if (!selectedCell) return [];
+    const { row, col } = selectedCell;
+    if (grid[row][col] === null) return [];
+
+    const cells: { row: number; col: number }[] = [];
+    if (selectedDirection === 'across') {
+      let start = col;
+      while (start > 0 && grid[row][start - 1] !== null) start -= 1;
+      let cursor = start;
+      while (cursor < 5 && grid[row][cursor] !== null) {
+        cells.push({ row, col: cursor });
+        cursor += 1;
+      }
+    } else {
+      let start = row;
+      while (start > 0 && grid[start - 1][col] !== null) start -= 1;
+      let cursor = start;
+      while (cursor < 5 && grid[cursor][col] !== null) {
+        cells.push({ row: cursor, col });
+        cursor += 1;
+      }
+    }
+
+    return cells;
+  };
+
+  const clearBoard = () => {
+    setGrid((prev) => prev.map((row) => row.map((cell) => (cell === null ? null : ''))));
+    setUserInput((prev) => prev.map((row) => row.map(() => false)));
+  };
+
+  const clearSelectedWord = () => {
+    const cells = getSelectedWordCells();
+    if (cells.length === 0) {
+      alert('בחר תא תקין לפני מחיקת מילה.');
+      return;
+    }
+    setGrid((prev) => {
+      const next = prev.map((row) => [...row]);
+      cells.forEach(({ row, col }) => {
+        if (next[row][col] !== null) {
+          next[row][col] = '';
+        }
+      });
+      return next;
+    });
+    setUserInput((prev) => {
+      const next = prev.map((row) => [...row]);
+      cells.forEach(({ row, col }) => {
+        if (grid[row][col] !== null) {
+          next[row][col] = false;
+        }
+      });
+      return next;
+    });
+  };
+
+  const toggleSelectedDirection = () => {
+    setSelectedDirection((current) => (current === 'across' ? 'down' : 'across'));
+  };
+
+  const handleAutoFill = (fillOneWord: boolean = false) => {
+    // Create a grid that preserves user input and black squares, allows autofill in empty/autofilled cells
+    const fillableGrid = grid.map((row, r) =>
+      row.map((cell, c) => {
+        if (cell === null) return null; // Preserve black squares
+        return userInput[r][c] ? cell : ''; // Preserve user input, allow filling empty/autofilled cells
+      })
+    );
+
+    const filledGrid = autoFillGridBacktracking(fillableGrid, HEBREW_LEXICON, fillOneWord);
+
+    if (filledGrid) {
+      setGrid(filledGrid);
+      // Mark autofilled cells as not user input
+      setUserInput((prev) => {
+        const next = prev.map((row, r) =>
+          row.map((cell, c) => {
+            if (grid[r][c] === null) return false; // Black squares are never user input
+            return cell || (filledGrid[r][c] !== '' && filledGrid[r][c] !== grid[r][c]);
+          })
+        );
+        return next;
+      });
+      return;
+    }
+
+    alert('לא ניתן למלא את הלוח עם המילון הנוכחי והאותיות הקיימות. נסה לשנות את המבנה או לבדוק אם מילאת אותיות לא תואמות.');
+  };
+
   return (
-    <div className="min-h-screen bg-bg flex flex-col">
+    <div className="min-h-screen bg-bg flex flex-col pb-20">
       <header className="bg-white border-b border-grid-line px-8 py-4 flex justify-between items-center sticky top-0 z-40">
         <div className="flex items-center gap-4">
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
@@ -206,7 +320,7 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
-                  className="bg-transparent border-none focus:ring-0 font-bold text-sm"
+                  className="bg-transparent border-none focus:ring-0 font-bold text-sm text-black"
                 />
               </div>
               <button
@@ -238,6 +352,24 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
           >
             <Download size={18} />
             ייצא קובץ נתונים
+          </button>
+          <button
+            onClick={clearBoard}
+            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl font-bold transition-all"
+          >
+            נקה לוח
+          </button>
+          <button
+            onClick={clearSelectedWord}
+            className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-xl font-bold transition-all"
+          >
+            מחיקת מילה
+          </button>
+          <button
+            onClick={toggleSelectedDirection}
+            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-xl font-bold transition-all"
+          >
+            כיוון: {selectedDirection === 'across' ? 'מאוזן' : 'מאונך'}
           </button>
         </div>
       </header>
@@ -304,7 +436,7 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
             className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16"
           >
             <div className="flex flex-col items-center">
-              <div className="flex items-center gap-2 mb-8 text-gray-400 font-bold uppercase tracking-widest text-sm">
+              <div className="flex items-center gap-2 mb-8 text-gray-700 font-bold uppercase tracking-widest text-sm">
                 <Grid size={16} />
                 עריכת לוח
               </div>
@@ -326,7 +458,9 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
                             type="text"
                             value={cell}
                             onChange={(e) => handleLetterChange(r, c, e.target.value)}
-                            className="w-full h-full bg-transparent text-center border-none focus:ring-0 p-0 text-2xl font-bold"
+                            className={`w-full h-full bg-transparent text-center border-none focus:ring-0 p-0 text-2xl font-bold ${
+                              userInput[r][c] ? 'text-blue-600' : 'text-gray-600'
+                            }`}
                           />
                         </>
                       )}
@@ -335,23 +469,41 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
                 )}
               </div>
 
-              <div className="bg-gray-100 p-4 rounded-xl text-xs text-gray-500 max-w-sm text-center">
-                <p className="font-bold mb-1">טיפים:</p>
-                <p>• הקלד אותיות ישירות במשבצות</p>
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={() => handleAutoFill(false)}
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all"
+                >
+                  <Zap size={18} />
+                  מילוי אוטומטי
+                </button>
+                <button
+                  onClick={() => handleAutoFill(true)}
+                  className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all"
+                >
+                  <Zap size={18} />
+                  מילוי מילה אחת
+                </button>
+              </div>
+
+              <div className="bg-gray-100 p-4 rounded-xl text-xs text-gray-700 max-w-sm text-center">
+                <p className="font-bold mb-1 text-gray-900">טיפים:</p>
+                <p>• הקלד אותיות ישירות במשבצות (כחול = ידני)</p>
                 <p>• Shift + קליק להפיכת משבצת לשחורה/לבנה</p>
-                <p>• המספרים מתעדכנים אוטומטית לפי מבנה הלוח</p>
+                <p>• מילוי אוטומטי משמר את האותיות שהקלדת</p>
+                <p>• מילוי מילה אחת ממלא רק מילה בודדת</p>
               </div>
             </div>
 
             <div className="flex flex-col gap-10">
-              <div className="flex items-center gap-2 text-gray-400 font-bold uppercase tracking-widest text-sm">
+              <div className="flex items-center gap-2 text-gray-700 font-bold uppercase tracking-widest text-sm">
                 <List size={16} />
                 הגדרות ורמזים
               </div>
 
               <div className="space-y-12">
                 <section>
-                  <h3 className="text-[13px] font-black text-gray-400 uppercase tracking-[1px] mb-6 border-b border-grid-line pb-2">מאוזן</h3>
+                  <h3 className="text-[13px] font-black text-gray-700 uppercase tracking-[1px] mb-6 border-b border-grid-line pb-2">מאוזן</h3>
                   <div className="space-y-6">
                     {identifiedAcross.map((clue) => (
                       <div key={`across-${clue.number}`} className="flex flex-col gap-2">
@@ -359,7 +511,7 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
                           <span className="bg-accent text-ink w-6 h-6 rounded flex items-center justify-center font-black text-xs">
                             {clue.number}
                           </span>
-                          <span className="text-xs font-bold text-gray-400">({clue.length} אותיות: {clue.answer})</span>
+                          <span className="text-xs font-bold text-gray-700">({clue.length} אותיות: {clue.answer})</span>
                         </div>
                         <input
                           type="text"
@@ -368,18 +520,18 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
                           onChange={(e) =>
                             setAcrossClues({ ...acrossClues, [`${clue.row}-${clue.col}`]: e.target.value })
                           }
-                          className="w-full bg-white border border-grid-line rounded-xl p-4 text-sm focus:ring-2 focus:ring-accent outline-none transition-all"
+                          className="w-full bg-white border border-grid-line rounded-xl p-4 text-sm text-black placeholder:text-gray-500 focus:ring-2 focus:ring-accent outline-none transition-all"
                         />
                       </div>
                     ))}
                     {identifiedAcross.length === 0 && (
-                      <p className="text-gray-300 italic text-sm">אין מילים מאוזנות</p>
+                      <p className="text-gray-600 italic text-sm">אין מילים מאוזנות</p>
                     )}
                   </div>
                 </section>
 
                 <section>
-                  <h3 className="text-[13px] font-black text-gray-400 uppercase tracking-[1px] mb-6 border-b border-grid-line pb-2">מאונך</h3>
+                  <h3 className="text-[13px] font-black text-gray-700 uppercase tracking-[1px] mb-6 border-b border-grid-line pb-2">מאונך</h3>
                   <div className="space-y-6">
                     {identifiedDown.map((clue) => (
                       <div key={`down-${clue.number}`} className="flex flex-col gap-2">
@@ -387,7 +539,7 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
                           <span className="bg-accent text-ink w-6 h-6 rounded flex items-center justify-center font-black text-xs">
                             {clue.number}
                           </span>
-                          <span className="text-xs font-bold text-gray-400">({clue.length} אותיות: {clue.answer})</span>
+                          <span className="text-xs font-bold text-gray-700">({clue.length} אותיות: {clue.answer})</span>
                         </div>
                         <input
                           type="text"
@@ -396,12 +548,12 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
                           onChange={(e) =>
                             setDownClues({ ...downClues, [`${clue.row}-${clue.col}`]: e.target.value })
                           }
-                          className="w-full bg-white border border-grid-line rounded-xl p-4 text-sm focus:ring-2 focus:ring-accent outline-none transition-all"
+                          className="w-full bg-white border border-grid-line rounded-xl p-4 text-sm text-black placeholder:text-gray-500 focus:ring-2 focus:ring-accent outline-none transition-all"
                         />
                       </div>
                     ))}
                     {identifiedDown.length === 0 && (
-                      <p className="text-gray-300 italic text-sm">אין מילים מאונכות</p>
+                      <p className="text-gray-600 italic text-sm">אין מילים מאונכות</p>
                     )}
                   </div>
                 </section>
@@ -410,6 +562,7 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
           </motion.div>
         )}
       </main>
+      <Footer />
     </div>
   );
 };
