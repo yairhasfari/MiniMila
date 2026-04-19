@@ -1,10 +1,11 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Save, Trash2, Grid, List, Calendar, Edit3, Plus, LayoutDashboard, Download, Zap } from 'lucide-react';
+import { Save, Trash2, Grid, List, Calendar, Edit3, Plus, LayoutDashboard, Download, Zap, Wand2 } from 'lucide-react';
 import { Puzzle, Clue } from '../types';
 import { Footer } from './Footer';
-import { HEBREW_LEXICON } from '../utils/hebrewDictionary';
+import { HEBREW_LEXICON, HEBREW_NOUN_LEXICON } from '../utils/hebrewDictionary';
 import { autoFillGridBacktracking } from '../utils/crosswordBacktracking';
+import { generateCluesForGrid } from '../utils/clueGenerator';
 
 interface PuzzleAdminProps {
   puzzles: Puzzle[];
@@ -29,6 +30,34 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
   const [downClues, setDownClues] = useState<{ [key: string]: string }>({});
   const [selectedCell, setSelectedCell] = useState<{ row: number; col: number } | null>(null);
   const [selectedDirection, setSelectedDirection] = useState<'across' | 'down'>('across');
+  const [highlightedCells, setHighlightedCells] = useState<{ row: number; col: number }[]>([]);
+
+  // Calculate cells for a specific clue
+  const getClueCells = (clue: Clue, direction: 'across' | 'down') => {
+    const cells: { row: number; col: number }[] = [];
+    const { row, col, length } = clue;
+
+    for (let i = 0; i < length; i++) {
+      if (direction === 'across') {
+        if (col + i < 5) cells.push({ row, col: col + i });
+      } else {
+        if (row + i < 5) cells.push({ row: row + i, col });
+      }
+    }
+
+    return cells;
+  };
+
+  // Handle clue input focus to highlight cells
+  const handleClueFocus = (clue: Clue, direction: 'across' | 'down') => {
+    const cells = getClueCells(clue, direction);
+    setHighlightedCells(cells);
+  };
+
+  // Handle clue input blur to clear highlighting
+  const handleClueBlur = () => {
+    setHighlightedCells([]);
+  };
 
   const resetCreator = () => {
     setEditingPuzzle(null);
@@ -207,6 +236,63 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
     }
   };
 
+  const handleGenerateClues = async () => {
+    console.log('🎯 Starting clue generation...');
+    console.log('📊 identifiedAcross:', identifiedAcross);
+    console.log('📊 identifiedDown:', identifiedDown);
+
+    const acrossWords = identifiedAcross
+      .map((clue) => clue.answer.trim().replace(/\s+/g, ''))
+      .filter((word) => word.length > 0);
+    const downWords = identifiedDown
+      .map((clue) => clue.answer.trim().replace(/\s+/g, ''))
+      .filter((word) => word.length > 0);
+
+    console.log('📝 Across words (filtered):', acrossWords);
+    console.log('📝 Down words (filtered):', downWords);
+
+    if (acrossWords.length === 0 && downWords.length === 0) {
+      alert('אין מילים בתשבץ. אנא מלא את התשבץ תחילה.');
+      return;
+    }
+
+    try {
+      const generatedClues = await generateCluesForGrid({
+        across: acrossWords,
+        down: downWords,
+      });
+
+      console.log('🎉 Generated clues result:', generatedClues);
+
+      // Update across clues
+      identifiedAcross.forEach((clue, index) => {
+        const key = `${clue.row}-${clue.col}`;
+        if (!acrossClues[key] && generatedClues[`across-${index}`]) {
+          setAcrossClues((prev) => ({
+            ...prev,
+            [key]: generatedClues[`across-${index}`],
+          }));
+        }
+      });
+
+      // Update down clues
+      identifiedDown.forEach((clue, index) => {
+        const key = `${clue.row}-${clue.col}`;
+        if (!downClues[key] && generatedClues[`down-${index}`]) {
+          setDownClues((prev) => ({
+            ...prev,
+            [key]: generatedClues[`down-${index}`],
+          }));
+        }
+      });
+
+      alert('נוצרו הגדרות אוטומטית לתאים ריקים!');
+    } catch (error) {
+      console.error('💥 Error generating clues:', error);
+      alert(`שגיאה בהפקת הגדרות אוטומטיות: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   const getSelectedWordCells = () => {
     if (!selectedCell) return [];
     const { row, col } = selectedCell;
@@ -269,7 +355,7 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
     setSelectedDirection((current) => (current === 'across' ? 'down' : 'across'));
   };
 
-  const handleAutoFill = (fillOneWord: boolean = false) => {
+  const handleAutoFill = (lexicon: Set<string>, fillOneWord: boolean = false) => {
     // Create a grid that preserves user input and black squares, allows autofill in empty/autofilled cells
     const fillableGrid = grid.map((row, r) =>
       row.map((cell, c) => {
@@ -278,7 +364,7 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
       })
     );
 
-    const filledGrid = autoFillGridBacktracking(fillableGrid, HEBREW_LEXICON, fillOneWord);
+    const filledGrid = autoFillGridBacktracking(fillableGrid, lexicon, fillOneWord);
 
     if (filledGrid) {
       setGrid(filledGrid);
@@ -304,6 +390,12 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
         <div className="flex items-center gap-4">
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
             <Edit3 size={24} />
+          </button>
+          <button
+            onClick={onClose}
+            className="hidden sm:inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all"
+          >
+            חזרה למשחק
           </button>
           <div>
             <h1 className="text-2xl font-black text-ink">ניהול תשבצים</h1>
@@ -443,48 +535,108 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
 
               <div className="crossword-grid mb-8">
                 {grid.map((row, r) =>
-                  row.map((cell, c) => (
-                    <div
-                      key={`${r}-${c}`}
-                      onClick={(e) => handleCellClick(r, c, e)}
-                      className={`cell ${cell === null ? 'black' : ''} relative`}
-                    >
-                      {cell !== null && (
-                        <>
-                          {cellToNumber[`${r}-${c}`] && (
-                            <span className="cell-num">{cellToNumber[`${r}-${c}`]}</span>
-                          )}
-                          <input
-                            type="text"
-                            value={cell}
-                            onChange={(e) => handleLetterChange(r, c, e.target.value)}
-                            className={`w-full h-full bg-transparent text-center border-none focus:ring-0 p-0 text-2xl font-bold ${
-                              userInput[r][c] ? 'text-blue-600' : 'text-gray-600'
-                            }`}
-                          />
-                        </>
-                      )}
-                    </div>
-                  ))
+                  row.map((cell, c) => {
+                    const isHighlighted = highlightedCells.some(pos => pos.row === r && pos.col === c);
+                    return (
+                      <div
+                        key={`${r}-${c}`}
+                        onClick={(e) => handleCellClick(r, c, e)}
+                        className={`cell ${cell === null ? 'black' : ''} ${isHighlighted ? 'highlight' : ''} relative`}
+                      >
+                        {cell !== null && (
+                          <>
+                            {cellToNumber[`${r}-${c}`] && (
+                              <span className="cell-num">{cellToNumber[`${r}-${c}`]}</span>
+                            )}
+                            <input
+                              type="text"
+                              value={cell}
+                              onChange={(e) => handleLetterChange(r, c, e.target.value)}
+                              className={`w-full h-full bg-transparent text-center border-none focus:ring-0 p-0 text-2xl font-bold ${
+                                userInput[r][c] ? 'text-blue-600' : 'text-gray-600'
+                              }`}
+                            />
+                          </>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
 
-              <div className="flex gap-2 mb-4">
+              <div className="flex flex-col sm:flex-row gap-2 mb-4">
                 <button
-                  onClick={() => handleAutoFill(false)}
+                  onClick={() => handleAutoFill(HEBREW_LEXICON, false)}
                   className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all"
                 >
                   <Zap size={18} />
                   מילוי אוטומטי
                 </button>
                 <button
-                  onClick={() => handleAutoFill(true)}
+                  onClick={() => handleAutoFill(HEBREW_NOUN_LEXICON, false)}
+                  className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all"
+                >
+                  <Zap size={18} />
+                  מילוי שם עצם
+                </button>
+                <button
+                  onClick={() => handleAutoFill(HEBREW_LEXICON, true)}
                   className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all"
                 >
                   <Zap size={18} />
                   מילוי מילה אחת
                 </button>
               </div>
+
+              <button
+                onClick={handleGenerateClues}
+                className="bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all w-full justify-center"
+              >
+                <Wand2 size={20} />
+                צור הגדרות אוטומטית
+              </button>
+
+              <button
+                onClick={async () => {
+                  console.log('🔑 API Key exists:', !!import.meta.env.VITE_GROQ_API_KEY);
+                  console.log('🔑 API Key value:', import.meta.env.VITE_GROQ_API_KEY?.substring(0, 10) + '...');
+
+                  // Test API call
+                  try {
+                    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Bearer ${import.meta.env.VITE_GROQ_API_KEY}`,
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        model: 'llama-3.1-8b-instant',
+                        messages: [
+                          { role: 'user', content: 'Say "Hello" in Hebrew' }
+                        ],
+                        max_tokens: 10,
+                      }),
+                    });
+
+                    console.log('🧪 Test API response status:', response.status);
+                    if (response.ok) {
+                      const data = await response.json();
+                      console.log('🧪 Test API response:', data);
+                      alert('API test successful! Check console for details.');
+                    } else {
+                      const error = await response.text();
+                      console.error('🧪 Test API error:', error);
+                      alert('API test failed! Check console.');
+                    }
+                  } catch (error) {
+                    console.error('🧪 Test API network error:', error);
+                    alert('API test network error! Check console.');
+                  }
+                }}
+                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all"
+              >
+                🧪 Test API
+              </button>
 
               <div className="bg-gray-100 p-4 rounded-xl text-xs text-gray-700 max-w-sm text-center">
                 <p className="font-bold mb-1 text-gray-900">טיפים:</p>
@@ -520,6 +672,8 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
                           onChange={(e) =>
                             setAcrossClues({ ...acrossClues, [`${clue.row}-${clue.col}`]: e.target.value })
                           }
+                          onFocus={() => handleClueFocus(clue, 'across')}
+                          onBlur={handleClueBlur}
                           className="w-full bg-white border border-grid-line rounded-xl p-4 text-sm text-black placeholder:text-gray-500 focus:ring-2 focus:ring-accent outline-none transition-all"
                         />
                       </div>
@@ -548,6 +702,8 @@ export const PuzzleAdmin: React.FC<PuzzleAdminProps> = ({ puzzles, onSave, onDel
                           onChange={(e) =>
                             setDownClues({ ...downClues, [`${clue.row}-${clue.col}`]: e.target.value })
                           }
+                          onFocus={() => handleClueFocus(clue, 'down')}
+                          onBlur={handleClueBlur}
                           className="w-full bg-white border border-grid-line rounded-xl p-4 text-sm text-black placeholder:text-gray-500 focus:ring-2 focus:ring-accent outline-none transition-all"
                         />
                       </div>

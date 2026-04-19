@@ -47,7 +47,8 @@
   cursor: text;
   text-transform: uppercase;
   user-select: none;
-  transition: background 0.2s;
+  transition: background 0.15s, box-shadow 0.15s;
+  border: 1px solid transparent;
 }
 
 .cell.black {
@@ -55,12 +56,25 @@
   cursor: default;
 }
 
-.cell.active {
-  background-color: var(--color-active);
-}
-
 .cell.highlight {
   background-color: var(--color-highlight);
+}
+
+.cell.active {
+  background-color: var(--color-active);
+  border: 2px solid #FFC107;
+}
+
+.cell:focus-visible {
+  outline: none;
+}
+
+/* Focused (currently editing) cell */
+.cell.focused {
+  background-color: #FFE082;
+  border: 2px solid #FFA000;
+  box-shadow: inset 0 0 0 1px #FFA000;
+  z-index: 10;
 }
 
 .cell-num {

@@ -254,12 +254,14 @@ export default function App() {
       moveFocus(1, 0);
       setActiveDirection('down');
     } else if (key === 'Backspace') {
+      e.preventDefault();
       const newGrid = [...userGrid.map(row => [...row])];
       if (newGrid[focusedCell.row][focusedCell.col] === '') {
-        // Move back and then delete
+        // Cell is empty, move to previous cell
         if (activeDirection === 'across') moveFocus(0, -1);
         else moveFocus(-1, 0);
       } else {
+        // Clear current cell
         newGrid[focusedCell.row][focusedCell.col] = '';
         setUserGrid(newGrid);
       }
@@ -323,12 +325,18 @@ export default function App() {
     });
   };
 
+  const exitAdminMode = () => {
+    setIsAdminMode(false);
+    setIsAdminAuthenticated(false);
+    setAdminPassword('');
+  };
+
   const handleAdminSave = (newPuzzle: Puzzle) => {
     setPuzzles((prev) => {
       const filtered = prev.filter((p) => p.date !== newPuzzle.date);
       return [...filtered, newPuzzle].sort((a, b) => b.date.localeCompare(a.date));
     });
-    setIsAdminAuthenticated(false);
+    exitAdminMode();
   };
 
   const handleDeletePuzzle = (date: string) => {
@@ -337,7 +345,7 @@ export default function App() {
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPassword === 'MiniMila2026YairHasfari34!!!') {
+    if (adminPassword === '12341') {
       setIsAdminAuthenticated(true);
       if (rememberMe) {
         try {
@@ -401,6 +409,13 @@ export default function App() {
           <button type="submit" className="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600">
             כניסה
           </button>
+          <button
+            type="button"
+            onClick={exitAdminMode}
+            className="mt-3 w-full bg-gray-200 text-black py-2 rounded hover:bg-gray-300"
+          >
+            חזרה למשחק
+          </button>
         </form>
       </div>
     );
@@ -412,7 +427,7 @@ export default function App() {
         puzzles={puzzles}
         onSave={handleAdminSave} 
         onDelete={handleDeletePuzzle}
-        onClose={() => setIsAdminAuthenticated(false)}
+        onClose={exitAdminMode}
       />
     );
   }
